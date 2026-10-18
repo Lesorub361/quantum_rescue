@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +22,12 @@ class TerminalMessage {
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
+enum AgentEngineMode {
+  openCode,
+  rulesEngine,
+  geminiCloud,
+}
+
 class TerminalAgentState {
   final List<TerminalMessage> messages;
   final bool isAgentThinking;
@@ -27,6 +35,9 @@ class TerminalAgentState {
   final String apiKey;
   final String selectedAiModel;
   final List<String> commandHistory;
+  final AgentEngineMode engineMode;
+  final String opencodePath;
+  final bool isOpenCodeInstalled;
 
   const TerminalAgentState({
     this.messages = const [],
@@ -35,6 +46,9 @@ class TerminalAgentState {
     this.apiKey = '',
     this.selectedAiModel = 'gemini-1.5-flash',
     this.commandHistory = const [],
+    this.engineMode = AgentEngineMode.openCode,
+    this.opencodePath = 'opencode',
+    this.isOpenCodeInstalled = false,
   });
 
   TerminalAgentState copyWith({
@@ -44,6 +58,9 @@ class TerminalAgentState {
     String? apiKey,
     String? selectedAiModel,
     List<String>? commandHistory,
+    AgentEngineMode? engineMode,
+    String? opencodePath,
+    bool? isOpenCodeInstalled,
   }) {
     return TerminalAgentState(
       messages: messages ?? this.messages,
@@ -52,6 +69,9 @@ class TerminalAgentState {
       apiKey: apiKey ?? this.apiKey,
       selectedAiModel: selectedAiModel ?? this.selectedAiModel,
       commandHistory: commandHistory ?? this.commandHistory,
+      engineMode: engineMode ?? this.engineMode,
+      opencodePath: opencodePath ?? this.opencodePath,
+      isOpenCodeInstalled: isOpenCodeInstalled ?? this.isOpenCodeInstalled,
     );
   }
 }
@@ -68,15 +88,22 @@ class TerminalAgentNotifier extends StateNotifier<TerminalAgentState> {
     final prefs = await SharedPreferences.getInstance();
     final key = prefs.getString('ai_api_key') ?? '';
     final model = prefs.getString('ai_model') ?? 'gemini-1.5-flash';
+    final ocPath = prefs.getString('opencode_path') ?? 'opencode';
 
-    state = state.copyWith(apiKey: key, selectedAiModel: model);
+    state = state.copyWith(
+      apiKey: key,
+      selectedAiModel: model,
+      opencodePath: ocPath,
+    );
+
+    await checkOpenCode();
 
     // Initial greeting
     addMessage(
       TerminalMessage(
-        text: '🤖 Quantum Rescue AI Agent активирован.\n'
-            'Я могу выполнять команды в терминале за вас, прошивать разделы, восстанавливать телефон из Linux обратно в Android и удалять системный мусор.\n'
-            'Напишите задачу простыми словами (например: "проверь статус загрузчика", "удали рекламу Xiaomi" или "прошей boot.img").',
+        text: '🤖 Quantum Rescue Terminal & OpenCode Agent активирован.\n'
+            'Я могу автономно выполнять задачи в системе за вас: прошивать разделы, восстанавливать телефон из Linux обратно в Android, собирать логи и настраивать Root.\n'
+            'Напишите задачу на русском языке (например: "проверь статус загрузчика", "удали рекламу Xiaomi" или "прошей boot.img").',
         isAgent: true,
       ),
     );
@@ -90,10 +117,48 @@ class TerminalAgentNotifier extends StateNotifier<TerminalAgentState> {
     state = state.copyWith(messages: []);
   }
 
+  void setEngineMode(AgentEngineMode mode) {
+    state = state.copyWith(engineMode: mode);
+  }
+
+  Future<void> setOpenCodePath(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('opencode_path', path);
+    state = state.copyWith(opencodePath: path);
+    await checkOpenCode();
+  }
+
   Future<void> setApiKey(String key) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('ai_api_key', key);
     state = state.copyWith(apiKey: key);
+  }
+
+  Future<void> checkOpenCode() async {
+    try {
+      final res = await Process.run('which', [state.opencodePath]);
+      state = state.copyWith(isOpenCodeInstalled: res.exitCode == 0);
+    } catch (_) {
+      state = state.copyWith(isOpenCodeInstalled: false);
+    }
+  }
+
+  Future<void> installOpenCode() async {
+    addMessage(TerminalMessage(text: '📥 Установка OpenCode CLI...', isAgent: true));
+    try {
+      final proc = await Process.start('bash', ['-c', 'curl -fsSL https://opencode.ai/install.sh | bash || npm i -g opencode-ai']);
+      proc.stdout.transform(utf8.decoder).listen((data) => addMessage(TerminalMessage(text: data.trim())));
+      proc.stderr.transform(utf8.decoder).listen((data) => addMessage(TerminalMessage(text: data.trim())));
+      final code = await proc.exitCode;
+      if (code == 0) {
+        state = state.copyWith(isOpenCodeInstalled: true);
+        addMessage(TerminalMessage(text: '✅ OpenCode CLI успешно установлен и готов к работе!', isAgent: true));
+      } else {
+        addMessage(TerminalMessage(text: '⚠️ Установка завершилась с кодом $code. Если Node.js установлен, выполните: npm i -g opencode-ai', isAgent: true));
+      }
+    } catch (e) {
+      addMessage(TerminalMessage(text: '❌ Ошибка установки OpenCode: $e', isAgent: true));
+    }
   }
 
   /// Execute direct shell command entered by user
@@ -122,19 +187,35 @@ class TerminalAgentNotifier extends StateNotifier<TerminalAgentState> {
     addMessage(TerminalMessage(text: prompt, isUser: true));
     state = state.copyWith(isAgentThinking: true);
 
+    // 1. If OpenCode mode is active and installed, invoke opencode CLI
+    if (state.engineMode == AgentEngineMode.openCode) {
+      if (state.isOpenCodeInstalled) {
+        state = state.copyWith(isAgentThinking: false);
+        await _runOpenCodeAgent(prompt);
+        return;
+      } else {
+        addMessage(
+          TerminalMessage(
+            text: '💡 OpenCode CLI не обнаружен в системе. Вы можете нажать «Установить OpenCode» в панели сверху. Сейчас задача будет выполнена встроенным автономным движком...',
+            isAgent: true,
+          ),
+        );
+      }
+    }
+
     final fbState = ref.read(fastbootAdbProvider);
     final device = fbState.device;
 
     try {
-      // 1. If Gemini API key is configured, query LLM
-      if (state.apiKey.isNotEmpty) {
+      // 2. If Gemini API key is configured and cloud mode selected
+      if (state.engineMode == AgentEngineMode.geminiCloud && state.apiKey.isNotEmpty) {
         final agentPlan = await _queryGemini(prompt, device);
         state = state.copyWith(isAgentThinking: false);
         await _executeAgentPlan(agentPlan);
         return;
       }
 
-      // 2. Built-in Autonomous Rule Engine (works 100% offline without API key!)
+      // 3. Built-in Autonomous Rule Engine (works 100% offline without API key!)
       final plan = _formulateOfflinePlan(prompt, device);
       state = state.copyWith(isAgentThinking: false);
       await _executeAgentPlan(plan);
@@ -149,7 +230,30 @@ class TerminalAgentNotifier extends StateNotifier<TerminalAgentState> {
     }
   }
 
-  /// Built-in intelligent rule engine for Android Rescue & Root tasks
+  Future<void> _runOpenCodeAgent(String prompt) async {
+    addMessage(TerminalMessage(text: '⚡ [OpenCode Agent] Обработка задачи...', isAgent: true));
+    state = state.copyWith(isExecuting: true);
+    try {
+      final proc = await Process.start(state.opencodePath, ['run', prompt]);
+      proc.stdout.transform(utf8.decoder).listen((data) {
+        if (data.trim().isNotEmpty) {
+          addMessage(TerminalMessage(text: data.trim()));
+        }
+      });
+      proc.stderr.transform(utf8.decoder).listen((data) {
+        if (data.trim().isNotEmpty) {
+          addMessage(TerminalMessage(text: data.trim()));
+        }
+      });
+      final exitCode = await proc.exitCode;
+      state = state.copyWith(isExecuting: false);
+      addMessage(TerminalMessage(text: '🏁 [OpenCode] Задача завершена (код: $exitCode)', isAgent: true));
+    } catch (e) {
+      state = state.copyWith(isExecuting: false);
+      addMessage(TerminalMessage(text: '❌ Ошибка выполнения OpenCode: $e', isAgent: true));
+    }
+  }
+
   _AgentPlan _formulateOfflinePlan(String prompt, dynamic device) {
     final p = prompt.toLowerCase();
 
@@ -217,7 +321,6 @@ class TerminalAgentNotifier extends StateNotifier<TerminalAgentState> {
       );
     }
 
-    // Default: informative system diagnostics
     return _AgentPlan(
       explanation: 'Выполняю диагностику подключенного оборудования...',
       commands: [

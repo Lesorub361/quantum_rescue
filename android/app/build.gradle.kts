@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.quantum.rescue.quantum_rescue"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -141,6 +141,40 @@ class _AiTerminalScreenState extends ConsumerState<AiTerminalScreen> {
             ),
           ),
 
+          if (_isAiMode)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: QuantumRescueTheme.card,
+              child: Row(
+                children: [
+                  Icon(
+                    terminalState.isOpenCodeInstalled ? LucideIcons.circle_check : LucideIcons.circle_alert,
+                    size: 13,
+                    color: terminalState.isOpenCodeInstalled ? QuantumRescueTheme.accentNeon : Colors.amberAccent,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      terminalState.isOpenCodeInstalled
+                          ? 'OpenCode CLI активен (anomalyco/opencode)'
+                          : 'OpenCode CLI не найден в системе',
+                      style: GoogleFonts.inter(fontSize: 10.5, color: Colors.white70),
+                    ),
+                  ),
+                  if (!terminalState.isOpenCodeInstalled)
+                    TextButton.icon(
+                      onPressed: () => terminalNotifier.installOpenCode(),
+                      icon: const Icon(LucideIcons.download, size: 12, color: QuantumRescueTheme.accentNeon),
+                      label: const Text('Установить OpenCode', style: TextStyle(fontSize: 10, color: QuantumRescueTheme.accentNeon, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
           // ── Messages / Terminal View ───────────────────────────────────────
           Expanded(
             child: Container(

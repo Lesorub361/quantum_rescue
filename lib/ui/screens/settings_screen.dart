@@ -17,6 +17,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _fastbootPathController = TextEditingController();
   final TextEditingController _adbPathController = TextEditingController();
+  final TextEditingController _opencodePathController = TextEditingController();
 
   @override
   void initState() {
@@ -30,6 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _apiKeyController.text = prefs.getString('ai_api_key') ?? '';
       _fastbootPathController.text = prefs.getString('fastboot_path') ?? 'fastboot';
       _adbPathController.text = prefs.getString('adb_path') ?? 'adb';
+      _opencodePathController.text = prefs.getString('opencode_path') ?? 'opencode';
     });
   }
 
@@ -38,8 +40,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await prefs.setString('ai_api_key', _apiKeyController.text.trim());
     await prefs.setString('fastboot_path', _fastbootPathController.text.trim());
     await prefs.setString('adb_path', _adbPathController.text.trim());
+    await prefs.setString('opencode_path', _opencodePathController.text.trim());
 
     ref.read(terminalAgentProvider.notifier).setApiKey(_apiKeyController.text.trim());
+    ref.read(terminalAgentProvider.notifier).setOpenCodePath(_opencodePathController.text.trim());
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -93,6 +97,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   style: GoogleFonts.jetBrainsMono(fontSize: 12, color: Colors.white),
                   decoration: InputDecoration(
                     labelText: 'Gemini API Key (Опционально)',
+                    labelStyle: const TextStyle(fontSize: 11, color: Colors.white54),
+                    filled: true,
+                    fillColor: QuantumRescueTheme.surface,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _opencodePathController,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 12, color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'OpenCode CLI Path (anomalyco/opencode)',
                     labelStyle: const TextStyle(fontSize: 11, color: Colors.white54),
                     filled: true,
                     fillColor: QuantumRescueTheme.surface,
